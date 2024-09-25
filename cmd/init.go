@@ -15,6 +15,7 @@ import (
 	"github.com/mr-karan/calert/internal/notifier"
 	prvs "github.com/mr-karan/calert/internal/providers"
 	"github.com/mr-karan/calert/internal/providers/google_chat"
+	alertmgrtmpl "github.com/prometheus/alertmanager/template"
 	flag "github.com/spf13/pflag"
 )
 
@@ -132,6 +133,30 @@ func initNotifier(ko *koanf.Koanf, lo *slog.Logger, provs []prvs.Provider) (noti
 	})
 	if err != nil {
 		return notifier.Notifier{}, fmt.Errorf("error initialising notifier: %s", err)
+	}
+
+	// We want to detect immediately if we misconfigured the providers (that is,
+	// the Google Chat destinations). To do so, we send a message on startup.
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = fmt.Sprintf("%s (%s)", hostname, err)
+	}
+	for _, prov := range provs {
+		alert := alertmgrtmpl.Alert{
+			Status: "starting",
+			Labels: map[string]string{
+				"alertname": "calert",
+			},
+			Annotations: map[string]string{
+				"room":     prov.Room(),
+				"hostname": hostname,
+			},
+			GeneratorURL: hostname,
+		}
+		err := prov.Push([]alertmgrtmpl.Alert{alert})
+		if err != nil {
+			lo.Error("sending start message to provider", "error", err)
+		}
 	}
 
 	return n, err
